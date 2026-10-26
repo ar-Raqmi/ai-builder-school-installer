@@ -34,7 +34,9 @@ The app isn't notarized (that needs Apple's paid $99/year developer program), so
 curl -fsSL https://raw.githubusercontent.com/ar-Raqmi/ai-builder-school-installer/master/scripts/install-mac.sh | bash
 ```
 
-It downloads the app, puts it in `/Applications` (or `~/Applications` if that's locked) and opens it. macOS only gets suspicious of files that came through a browser, and `curl` isn't one, so it never asks.
+It installs **Homebrew** if you don't have it yet (the wizard needs it for VS Code and Node, and can't install it itself — it has no terminal to ask for your password with), then installs the app into `/Applications` (or `~/Applications` if that's locked) and opens it. Expect it to ask for your Mac's password once, and to take a while if the Xcode Command Line Tools have to be installed first.
+
+macOS only gets suspicious of files that came through a browser, and `curl` isn't one, so it never asks.
 
 **Option B (the `.dmg`).** Drag the app to Applications and double-click it. It says *"Apple could not verify 'AI Builder School Setup'…"* — click **Done**, then:
 
@@ -146,11 +148,11 @@ What I've actually run, so you know what to trust:
 
 What I *haven't* tested, so treat these as unverified:
 
-- **A clean macOS machine** (no Homebrew). The app's macOS install path has only ever run
-  on a Mac that already had `brew`, so `ensure_brew` and everything downstream of it is
-  unexercised. On a Mac without Homebrew the wizard cannot finish on its own: it runs the
-  Homebrew installer without a terminal, so it can't answer the admin prompt. Use the
-  Terminal one-liner instead, or install Homebrew first.
+- **A clean macOS machine** (no Homebrew) running the **`.dmg`** path. The wizard alone
+  cannot install Homebrew: it runs the installer without a terminal, so the admin prompt
+  can't be answered, and VS Code and Node then fall back to manual instructions. The
+  Terminal one-liner installs Homebrew for you before the app opens — that combination is
+  the one to use on a fresh Mac.
 - The **macOS Intel** build on real Intel hardware. It's built by CI, but I haven't run it.
 - The **`.deb` and `.rpm`** packages. I've only run the AppImage.
 - **`install-linux.sh`**. It has only been exercised on a Mac against a faked Linux (stubbed `uname` and `curl`, a pretend AppImage), which covers the architecture check, picking the right file, the no-FUSE fallback and the error messages. It hasn't run on a real Linux machine against a real release yet, and the Linux builds are x86_64 only for now.

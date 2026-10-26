@@ -58,8 +58,17 @@ uses `sudo`) and opens it. Gatekeeper only assesses files that carry the
 `com.apple.quarantine` attribute. Browsers add it to downloads; `curl` does not, and `tar`
 does not copy it out of an archive, so the app opens with no prompt.
 
+It also **installs Homebrew when it's missing**, because the wizard installs VS Code and
+Node through `brew` and cannot do that itself: a GUI app has no terminal, so Homebrew's
+admin prompt can never be answered. The script runs the official installer with `/dev/tty`
+as its stdin — piped in, the script's own stdin is the `curl` pipe, and Homebrew treats a
+non-TTY stdin as non-interactive, which turns its `sudo` calls into `sudo -n` and fails on
+the password prompt. If the student cancels, the app is still installed and the wizard
+falls back to its manual instructions.
+
 It reads from `master` and from the latest *published* Release, so a draft Release is
-invisible to it until you publish.
+invisible to it until you publish. Because it is fetched from `master`, changes to it go
+live immediately and need no new app release.
 
 ### Linux one-liner
 
