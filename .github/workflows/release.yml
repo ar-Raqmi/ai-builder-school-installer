@@ -90,30 +90,72 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "AI Builder School Setup ${{ github.ref_name }}"
           releaseBody: |
-            One-click setup for AI Builder School students.
+            One-click setup for AI Builder School students. It installs VS Code, Git,
+            Node.js and the Kilo Code extension, then configures your API key so class
+            starts on the coding instead of on the setup.
 
-            Installs VS Code, Git, Node.js and the Kilo Code extension, then configures
-            your API key. Pick the one for your computer:
+            ## Get it
 
-            **Windows:** `aibs-setup_windows_x64.exe` — portable, just double-click it (recommended).
-            If it doesn't open, use the `-setup.exe` instead; it also installs WebView2.
+            | Your computer | Download |
+            | --- | --- |
+            | **Windows** | `aibs-setup_windows_x64.exe` — portable, just double-click it |
+            | **macOS** | the Terminal one-liner below (no security prompts), or the `.dmg` |
+            | **Linux** | the Terminal one-liner below, or the `.AppImage` |
 
-            **macOS:** open Terminal and paste this (no security prompts):
+            ### Windows
+
+            Double-click `aibs-setup_windows_x64.exe` — nothing to install first. If Windows
+            says "protected your PC", click **More info** → **Run anyway**. If the portable exe
+            doesn't open, use `AI.Builder.School.Setup_<version>_x64-setup.exe` instead; it also
+            installs the WebView2 runtime.
+
+            ### macOS
+
+            Open Terminal and paste this. It picks the build for your chip, installs to
+            `/Applications` and opens the app — no "Apple could not verify" prompt:
 
             ```
             curl -fsSL https://raw.githubusercontent.com/ar-Raqmi/ai-builder-school-installer/master/scripts/install-mac.sh | bash
             ```
 
-            The `.dmg` works too, but macOS will say it "could not verify" the app. Click Done, then
-            System Settings → Privacy & Security → scroll to Security → **Open Anyway**.
+            The `.dmg` works too: click **Done** on the warning, then System Settings →
+            Privacy & Security → Security → **Open Anyway** → password.
 
-            **Linux:** open a terminal and paste this:
+            ### Linux
 
             ```
             curl -fsSL https://raw.githubusercontent.com/ar-Raqmi/ai-builder-school-installer/master/scripts/install-linux.sh | bash
             ```
 
-            Prefer to download it yourself? Use the `.AppImage` and ignore the `.deb` and `.rpm`.
+            Prefer to download it yourself? Use the `.AppImage` and ignore the `.deb` and
+            `.rpm` — the AppImage is self-contained and runs on Arch, Ubuntu, Fedora, anything.
+
+            ## What's in this release
+
+            - **Your API key now actually reaches the gateway.** It is handed to `curl` over
+              stdin instead of on the command line, so *Test connection* works and the key no
+              longer shows up in `ps` for any other process on the machine to read.
+            - **A stale Node.js is no longer skipped.** Node 18 is end-of-life and breaks the
+              class kit; a machine with Node 18 used to be reported "already installed", so the
+              failure surfaced mid-lesson. It is now detected and upgraded during setup.
+            - **Fonts are bundled.** The wizard used to fetch Geist from Google Fonts on every
+              launch; on a filtered school network that could make the window look broken. It
+              now makes no third-party requests at all.
+            - **Credential files are owner-only (0600).** The Kilo config and auth files hold
+              your key, and are no longer world-readable on a shared machine.
+
+            ## Builds attached
+
+            | Platform | Files |
+            | --- | --- |
+            | Windows x64 | `aibs-setup_windows_x64.exe` (portable), `..._x64-setup.exe` (NSIS, installs WebView2) |
+            | macOS Apple silicon | `..._aarch64.dmg`, `..._aarch64.app.tar.gz` (used by the one-liner) |
+            | macOS Intel | `..._x64.dmg`, `..._x64.app.tar.gz` (used by the one-liner) |
+            | Linux x86_64 | `..._amd64.AppImage`, `..._amd64.deb`, `...-1.x86_64.rpm` |
+
+            Windows and Linux are verified on real machines. The macOS clean-install path is
+            being verified on a fresh macOS VM — if the wizard stalls on Homebrew, run the
+            macOS one-liner instead and tell ar-Raqmi.
           releaseDraft: true
           prerelease: false
           uploadPlainBinary: ${{ matrix.plain_binary || false }}
