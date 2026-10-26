@@ -56,7 +56,7 @@ fn live_chat_completion_works_with_the_configured_provider() {
     assert!(!k.is_empty(), "set AIBS_TEST_KEY to run this test");
 
     let body = r#"{"model":"deepseek-v4.1-flash","messages":[{"role":"user","content":"Reply with the single word: READY"}],"max_tokens":24}"#;
-    let out = std::process::Command::new("curl")
+    let mut child = std::process::Command::new("curl")
         .args([
             "-sS",
             "-m",
@@ -66,15 +66,25 @@ fn live_chat_completion_works_with_the_configured_provider() {
             "-X",
             "POST",
             "-H",
-            &format!("Authorization: Bearer {k}"),
+            "@-",
             "-H",
             "Content-Type: application/json",
             "-d",
             body,
             "https://litellm.rapidscreen.io/v1/chat/completions",
         ])
-        .output()
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .expect("curl should run");
+    {
+        use std::io::Write;
+        let mut si = child.stdin.take().expect("stdin pipe");
+        // Same stdin hand-off the app uses, so the key never lands in argv.
+        writeln!(si, "Authorization: Bearer {}", k.trim()).expect("write header");
+    }
+    let out = child.wait_with_output().expect("curl should finish");
     let text = String::from_utf8_lossy(&out.stdout).to_string();
     println!("response: {}", &text.chars().take(500).collect::<String>());
     assert!(text.contains("__CODE__200"), "expected HTTP 200");

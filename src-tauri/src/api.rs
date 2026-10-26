@@ -4,6 +4,8 @@
 //! body when no key is supplied, so the model list is only available AFTER key entry.
 
 use serde::{Deserialize, Serialize};
+use std::io::Write;
+use std::process::Stdio;
 
 pub const DEFAULT_BASE_URL: &str = "https://litellm.rapidscreen.io/v1";
 /// The model students get by default. Cheap, fast, capable enough for the course.
@@ -34,7 +36,12 @@ fn http_get(url: &str, api_key: &str) -> Result<(u16, String), String> {
     // Minimal HTTP over a child process keeps the dependency surface tiny AND avoids
     // TLS/openssl build requirements on every student machine. curl ships on Windows 10+,
     // macOS and virtually every Linux, and we fall back to a pure-Rust path if absent.
-    let out = crate::platform::command("curl")
+    //
+    // The Authorization header is handed to curl on stdin (`-H @-`) rather than in argv:
+    // a command line is world-readable via `ps`, so passing the student's key there would
+    // leak it to every process on the machine for the life of the request. `-H @-` also
+    // merges with the ordinary `-H Accept:` argument below.
+    let child = crate::platform::command("curl")
         .args([
             "-sS",
             "-m",
@@ -42,12 +49,32 @@ fn http_get(url: &str, api_key: &str) -> Result<(u16, String), String> {
             "-w",
             "\n__HTTP_CODE__%{http_code}",
             "-H",
-            &format!("Authorization: Bearer {api_key}"),
+            "@-",
             "-H",
             "Accept: application/json",
             url,
         ])
-        .output();
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+
+    let out = match child {
+        Ok(mut c) => {
+            match c.stdin.take() {
+                Some(mut si) => {
+                    // curl only sends anything once stdin reaches EOF, so the handle is dropped
+                    // at the end of this block, before waiting.
+                    if let Err(e) = write!(si, "Authorization: Bearer {}\n", api_key.trim()) {
+                        return Err(format!("could not hand the key to curl: {e}"));
+                    }
+                }
+                None => return Err("curl got no stdin pipe".into()),
+            }
+            c.wait_with_output()
+        }
+        Err(e) => Err(e),
+    };
 
     match out {
         Ok(o) => {
@@ -186,5 +213,56 @@ mod tests {
         let r: ModelsResponse = serde_json::from_str(body).unwrap();
         assert_eq!(r.data.len(), 2);
         assert_eq!(r.data[1].id, "deepseek-v4.1-flash");
+    }
+
+    /// The regression this guards: the Authorization header was sent as a literal
+    /// `Bearer ***`, so the gateway rejected every key with "expected to start with 'sk-'"
+    /// and no student could ever verify one. The key must reach the request.
+    ///
+    /// A stub `curl` on PATH reads the header curl would have read, so this asserts the real
+    /// hand-off (stdin) carries the live key AND that argv does not leak it.
+    #[cfg(unix)]
+    #[test]
+    fn http_get_sends_the_key_on_stdin_not_in_argv() {
+        let dir = std::env::temp_dir().join(format!("curl-stub-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let stub = dir.join("curl");
+        // `cat` drains the header curl would read on stdin, then prints it.
+        std::fs::write(
+            &stub,
+            "#!/bin/sh\nprintf 'ARGV=%s\\n' \"$*\"\nprintf 'STDIN='\ncat\nprintf '\\n__HTTP_CODE__200'\n",
+        )
+        .unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let original = std::env::var_os("PATH").unwrap_or_default();
+        let mut dirs = vec![dir.clone()];
+        dirs.extend(std::env::split_paths(&original));
+        std::env::set_var("PATH", std::env::join_paths(dirs).unwrap());
+        let (code, body) = http_get("https://example.invalid/v1/models", "sk-live-key").unwrap();
+        std::env::set_var("PATH", original);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(code, 200);
+        // The key must travel on stdin, in a well-formed header.
+        assert!(
+            body.contains("Authorization: Bearer sk-live-key"),
+            "the key never reached curl's stdin: {body:?}"
+        );
+        // And argv must not carry it, or `ps` would expose it.
+        let argv = body.lines().find(|l| l.starts_with("ARGV=")).unwrap_or("");
+        assert!(
+            !argv.contains("sk-live-key"),
+            "the key leaked into argv: {argv}"
+        );
+        // The literal placeholder must be gone for good.
+        assert!(
+            !body.contains("***"),
+            "the old hard-coded placeholder is back: {body:?}"
+        );
     }
 }

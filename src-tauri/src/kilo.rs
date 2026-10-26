@@ -216,6 +216,30 @@ fn ensure_parent(path: &std::path::Path) -> Result<(), ConfigError> {
     Ok(())
 }
 
+/// Write a file that holds a credential, readable only by its owner.
+///
+/// `fs::write` creates with the process umask (0644 under the usual 022), which makes the
+/// API key world-readable on a shared or multi-user machine. The mode is set after the
+/// write because `O_CREAT`'s mode is still masked by the umask; a create-then-chmod cannot
+/// be masked. On Windows the call is a no-op and the file inherits the user's profile ACL.
+fn write_private(path: &std::path::Path, contents: &str) -> Result<(), ConfigError> {
+    std::fs::write(path, contents).map_err(|e| ConfigError::Io {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(|e| {
+            ConfigError::Io {
+                path: path.to_path_buf(),
+                source: e,
+            }
+        })?;
+    }
+    Ok(())
+}
+
 /// Write config, backing up any existing file to `kilo.jsonc.bak`.
 pub fn write_config(cfg: &Value) -> Result<PathBuf, ConfigError> {
     let path = kilo_config_path()?;
@@ -228,10 +252,8 @@ pub fn write_config(cfg: &Value) -> Result<PathBuf, ConfigError> {
         })?;
     }
     let pretty = serde_json::to_string_pretty(cfg).unwrap_or_else(|_| "{}".into());
-    std::fs::write(&path, pretty).map_err(|e| ConfigError::Io {
-        path: path.clone(),
-        source: e,
-    })?;
+    // The key is written inline by default, so the config is as sensitive as the auth store.
+    write_private(&path, &pretty)?;
     Ok(path)
 }
 
@@ -253,10 +275,7 @@ pub fn write_auth(api_key: &str) -> Result<PathBuf, ConfigError> {
         json!({ "type": "api", "key": api_key }),
     );
     let pretty = serde_json::to_string_pretty(&Value::Object(root)).unwrap_or_default();
-    std::fs::write(&path, pretty).map_err(|e| ConfigError::Io {
-        path: path.clone(),
-        source: e,
-    })?;
+    write_private(&path, &pretty)?;
     Ok(path)
 }
 
@@ -401,5 +420,46 @@ mod tests {
         let cfg = build_config(&json!({}), &models, "a", "k", false);
         let m = cfg["provider"]["aibs"]["models"].as_object().unwrap();
         assert_eq!(m.len(), 3);
+    }
+
+    /// The key is written to disk, so the file must not be world-readable. `write_private`
+    /// is the only path either writer uses; this pins the mode it produces.
+    #[cfg(unix)]
+    #[test]
+    fn write_private_produces_owner_only_files() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("kilo-perm-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("secret.json");
+
+        write_private(&path, "{\"key\":\"sk-secret\"}").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "credential file was created with mode {mode:o}"
+        );
+
+        // Re-writing over an existing file must not leave it more permissive.
+        write_private(&path, "{\"key\":\"sk-rotated\"}").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "rewrite widened the mode to {mode:o}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The written content must still be the exact bytes asked for (the mode fix must not
+    /// have changed the payload).
+    #[cfg(unix)]
+    #[test]
+    fn write_private_preserves_content() {
+        let dir = std::env::temp_dir().join(format!("kilo-content-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("secret.json");
+        let body = "{\n  \"a\": 1\n}";
+        write_private(&path, body).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), body);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
