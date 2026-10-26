@@ -5,6 +5,21 @@ pub mod kilo;
 pub mod platform;
 pub mod steps;
 
+/// Serialises tests that mutate the process environment. `PATH` is process-global but
+/// `cargo test` runs test functions on parallel threads, so a test that temporarily
+/// rewrites `PATH` can make an unrelated test observe the wrong value. Any test that
+/// calls `std::env::set_var`/`remove_var` must hold this first.
+#[cfg(test)]
+static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Take [`ENV_LOCK`], recovering the guard if another test panicked while holding it.
+#[cfg(test)]
+pub(crate) fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+    ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Tauri entry point builder, kept in the lib so tests can link against the modules
 /// without booting a window.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

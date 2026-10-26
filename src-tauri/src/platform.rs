@@ -1257,6 +1257,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn command_passes_a_corrected_path_when_it_differs() {
+        // The child's PATH comes from the environment, which another test may be rewriting.
+        let _env = crate::env_lock();
         // Build the dirs with the host separator so this holds on any Unix.
         let out = command("/bin/sh")
             .args(["-c", "printf %s \"$PATH\""])

@@ -239,6 +239,7 @@ mod tests {
             std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
 
+        let _env = crate::env_lock();
         let original = std::env::var_os("PATH").unwrap_or_default();
         let mut dirs = vec![dir.clone()];
         dirs.extend(std::env::split_paths(&original));
