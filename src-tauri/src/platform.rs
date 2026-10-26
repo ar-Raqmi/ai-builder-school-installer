@@ -276,6 +276,23 @@ pub struct Probe {
     pub version: Option<String>,
     /// Path to the primary executable, if found.
     pub path: Option<String>,
+    /// Set when the tool is present but older than the course kit supports. A present-but-old
+    /// Node is worse than a missing one: the wizard would otherwise report "already installed"
+    /// and skip it, and the student hits confusing failures mid-class.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub too_old: Option<String>,
+}
+
+/// The oldest major Node the class kit runs on. Node 18 is EOL and breaks the kit.
+pub const MIN_NODE_MAJOR: u64 = 20;
+
+/// Parse the leading integer out of strings like `v20.11.1`, `20.11.1`, `v8.3.0`.
+fn major_version(raw: &str) -> Option<u64> {
+    raw.trim()
+        .trim_start_matches('v')
+        .split(['.', '-', ' '])
+        .next()
+        .and_then(|s| s.parse::<u64>().ok())
 }
 
 /// Directories where package managers drop binaries but this process may not look.
@@ -638,6 +655,7 @@ pub fn probe(tool: Tool) -> Probe {
                 version,
                 path,
                 tool,
+                too_old: None,
             }
         }
         Tool::Git => {
@@ -648,16 +666,25 @@ pub fn probe(tool: Tool) -> Probe {
                 version,
                 path,
                 tool,
+                too_old: None,
             }
         }
         Tool::Node => {
             let path = which("node");
             let version = path.as_ref().and_then(|p| version_of(p, &["--version"]));
+            let too_old = version.as_deref().and_then(|v| {
+                major_version(v).filter(|m| *m < MIN_NODE_MAJOR).map(|m| {
+                    format!(
+                        "Node {m} is too old for the class kit (needs {MIN_NODE_MAJOR} or newer)."
+                    )
+                })
+            });
             Probe {
                 found: path.is_some(),
                 version,
                 path,
                 tool,
+                too_old,
             }
         }
     }
@@ -1331,6 +1358,28 @@ mod tests {
         assert_eq!(c.args, vec!["install", "node"]);
         let code = install_command(Tool::Vscode).unwrap();
         assert_eq!(code.args, vec!["install", "--cask", "visual-studio-code"]);
+    }
+
+    #[test]
+    fn major_version_parses_the_shapes_node_actually_prints() {
+        assert_eq!(major_version("v20.11.1"), Some(20));
+        assert_eq!(major_version("v18.19.0"), Some(18));
+        assert_eq!(major_version("20.11.1"), Some(20));
+        assert_eq!(major_version("v22.0.0-pre"), Some(22));
+        assert_eq!(major_version("  v25.9.0  "), Some(25));
+        assert_eq!(major_version("v8.3.0"), Some(8));
+        assert_eq!(major_version("nonsense"), None);
+        assert_eq!(major_version(""), None);
+    }
+
+    /// The bug this guards: an installed Node 18 used to report "already installed" and get
+    /// skipped, so the student hit the failure in class instead of at setup.
+    #[test]
+    fn node_18_is_flagged_too_old_and_node_20_is_not() {
+        assert!(major_version("v18.19.0").unwrap() < MIN_NODE_MAJOR);
+        assert!(major_version("v20.11.1").unwrap() >= MIN_NODE_MAJOR);
+        assert!(major_version("v25.9.0").unwrap() >= MIN_NODE_MAJOR);
+        assert_eq!(MIN_NODE_MAJOR, 20);
     }
 
     #[test]

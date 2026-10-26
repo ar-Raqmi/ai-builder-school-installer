@@ -107,7 +107,7 @@ pub fn detect() -> DetectionReport {
     for tool in [Tool::Vscode, Tool::Git, Tool::Node] {
         let p: Probe = platform::probe(tool);
         let cmd = platform::install_command(tool);
-        let (status, detail, command) = if p.found {
+        let (status, detail, command) = if p.found && p.too_old.is_none() {
             (
                 "skipped".to_string(),
                 format!(
@@ -118,6 +118,14 @@ pub fn detect() -> DetectionReport {
                         .unwrap_or_default()
                 ),
                 None,
+            )
+        } else if p.found {
+            // Present but below the version the kit needs: offer the upgrade rather than
+            // skipping, so a stale Node can't sail through as "already installed".
+            (
+                "pending".to_string(),
+                p.too_old.clone().unwrap_or_default(),
+                cmd.as_ref().map(|c| c.display.clone()),
             )
         } else if let Some(c) = &cmd {
             (
@@ -227,7 +235,10 @@ pub fn install_tool_streaming(
         }
     };
 
-    if platform::probe(tool).found {
+    let probed = platform::probe(tool);
+    // A present-but-old Node must still be upgraded, or the student reaches class with a
+    // runtime the kit can't use.
+    if probed.found && probed.too_old.is_none() {
         return RunResult {
             ok: true,
             status: "skipped".into(),

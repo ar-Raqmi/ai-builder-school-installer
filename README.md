@@ -146,6 +146,11 @@ What I've actually run, so you know what to trust:
 
 What I *haven't* tested, so treat these as unverified:
 
+- **A clean macOS machine** (no Homebrew). The app's macOS install path has only ever run
+  on a Mac that already had `brew`, so `ensure_brew` and everything downstream of it is
+  unexercised. On a Mac without Homebrew the wizard cannot finish on its own: it runs the
+  Homebrew installer without a terminal, so it can't answer the admin prompt. Use the
+  Terminal one-liner instead, or install Homebrew first.
 - The **macOS Intel** build on real Intel hardware. It's built by CI, but I haven't run it.
 - The **`.deb` and `.rpm`** packages. I've only run the AppImage.
 - **`install-linux.sh`**. It has only been exercised on a Mac against a faked Linux (stubbed `uname` and `curl`, a pretend AppImage), which covers the architecture check, picking the right file, the no-FUSE fallback and the error messages. It hasn't run on a real Linux machine against a real release yet, and the Linux builds are x86_64 only for now.
